@@ -24,6 +24,7 @@ import {
   IS_FIREFOX_LEGACY,
   IS_QQBROWSER,
   IS_SAFARI,
+  IS_HYPERCLASS,
   CAN_USE_DOM,
 } from '../utils/environment'
 import { ReactEditor } from '..'
@@ -772,6 +773,7 @@ export const Editable = (props: EditableProps) => {
                   !IS_FIREFOX_LEGACY &&
                   !IS_IOS &&
                   !IS_QQBROWSER &&
+                  !IS_HYPERCLASS &&
                   event.data
                 ) {
                   Editor.insertText(editor, event.data)
