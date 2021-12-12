@@ -1,4 +1,4 @@
-import { Node, Ancestor, Editor } from 'slate';
+import { Ancestor, Editor, Node } from 'slate';
 import { Key } from './key';
 /**
  * Two weak maps that allow us rebuild a path given a node. They are populated
@@ -28,7 +28,7 @@ export declare const IS_CLICKING: WeakMap<Editor, boolean>;
  * Weak map for associating the context `onChange` context with the plugin.
  */
 export declare const EDITOR_TO_ON_CHANGE: WeakMap<import("..").ReactEditor, () => void>;
-export declare const EDITOR_TO_RESTORE_DOM: WeakMap<import("..").ReactEditor, () => void>;
+export declare const NODE_TO_RESTORE_DOM: WeakMap<Node, () => void>;
 /**
  * Symbols.
  */

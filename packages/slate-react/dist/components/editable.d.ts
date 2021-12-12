@@ -81,9 +81,9 @@ export declare const hasTarget: (editor: ReactEditor, target: EventTarget | null
  */
 export declare const hasEditableTarget: (editor: ReactEditor, target: EventTarget | null) => target is DOMNode;
 /**
- * Check if the target is inside void and in the editor.
+ * Check if the target is inside void and in an non-readonly editor.
  */
-export declare const isTargetInsideVoid: (editor: ReactEditor, target: EventTarget | null) => boolean;
+export declare const isTargetInsideNonReadonlyVoid: (editor: ReactEditor, target: EventTarget | null) => boolean;
 /**
  * Check if an event is overrided by a handler.
  */

@@ -8,6 +8,8 @@ export declare const IS_CHROME: boolean;
 export declare const IS_CHROME_LEGACY: boolean;
 export declare const IS_FIREFOX_LEGACY: boolean;
 export declare const IS_QQBROWSER: boolean;
+export declare const IS_UC_MOBILE: boolean;
+export declare const IS_WECHATBROWSER: boolean;
 export declare const IS_HYPERCLASS_IOS: boolean;
 export declare const IS_HYPERCLASS_ANDROID: boolean;
 export declare const CAN_USE_DOM: boolean;

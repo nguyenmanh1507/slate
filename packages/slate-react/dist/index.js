@@ -319,7 +319,7 @@ var IS_FOCUSED = new WeakMap();
  */
 
 var EDITOR_TO_ON_CHANGE = new WeakMap();
-var EDITOR_TO_RESTORE_DOM = new WeakMap();
+var NODE_TO_RESTORE_DOM = new WeakMap();
 /**
  * Symbols.
  */
@@ -420,7 +420,11 @@ var IS_CHROME_LEGACY = typeof navigator !== 'undefined' && /Chrome?\/(?:[0-7][0-
 
 var IS_FIREFOX_LEGACY = typeof navigator !== 'undefined' && /^(?!.*Seamonkey)(?=.*Firefox\/(?:[0-7][0-9]|[0-8][0-6])).*/i.test(navigator.userAgent); // qq browser
 
-var IS_QQBROWSER = typeof navigator !== 'undefined' && /.*QQBrowser/.test(navigator.userAgent); // dpj ios app
+var IS_QQBROWSER = typeof navigator !== 'undefined' && /.*QQBrowser/.test(navigator.userAgent); // UC mobile browser
+
+var IS_UC_MOBILE = typeof navigator !== 'undefined' && /.*UCBrowser/.test(navigator.userAgent); // Wechat browser
+
+var IS_WECHATBROWSER = typeof navigator !== 'undefined' && /.*Wechat/.test(navigator.userAgent); // dpj ios app
 
 var IS_HYPERCLASS_IOS = typeof navigator !== 'undefined' && /HyperClass-ios/.test(navigator.userAgent); // dpj android app
 
@@ -480,6 +484,42 @@ var isDecoratorRangeListEqual = function isDecoratorRangeListEqual(list, another
   return true;
 };
 
+function useContentKey(node) {
+  var contentKeyRef = React.useRef(0);
+  var updateAnimationFrameRef = React.useRef(null);
+
+  var _useState = React.useState(0),
+      _useState2 = _slicedToArray(_useState, 2),
+      setForceRerenderCounter = _useState2[1];
+
+  React.useEffect(function () {
+    NODE_TO_RESTORE_DOM.set(node, function () {
+      // Update is already queued and node hasn't re-render yet
+      if (updateAnimationFrameRef.current) {
+        return;
+      }
+
+      updateAnimationFrameRef.current = requestAnimationFrame(function () {
+        setForceRerenderCounter(function (state) {
+          return state + 1;
+        });
+        updateAnimationFrameRef.current = null;
+      });
+      contentKeyRef.current++;
+    });
+    return function () {
+      NODE_TO_RESTORE_DOM["delete"](node);
+    };
+  }, [node]); // Node was restored => clear scheduled update
+
+  if (updateAnimationFrameRef.current) {
+    cancelAnimationFrame(updateAnimationFrameRef.current);
+    updateAnimationFrameRef.current = null;
+  }
+
+  return contentKeyRef.current;
+}
+
 /**
  * Text.
  */
@@ -523,9 +563,11 @@ var Text = function Text(props) {
       NODE_TO_ELEMENT["delete"](text);
     }
   });
+  var contentKey = IS_ANDROID ? useContentKey(text) : undefined;
   return /*#__PURE__*/React__default['default'].createElement("span", {
     "data-slate-node": "text",
-    ref: ref
+    ref: ref,
+    key: contentKey
   }, children);
 };
 
@@ -629,11 +671,20 @@ var Element = function Element(props) {
       NODE_TO_ELEMENT["delete"](element);
     }
   });
-  return renderElement({
+  var content = renderElement({
     attributes: attributes,
     children: children,
     element: element
   });
+
+  if (IS_ANDROID) {
+    var contentKey = useContentKey(element);
+    return /*#__PURE__*/React__default['default'].createElement(React.Fragment, {
+      key: contentKey
+    }, content);
+  }
+
+  return content;
 };
 
 var MemoizedElement = /*#__PURE__*/React__default['default'].memo(Element, function (prev, next) {
@@ -1304,8 +1355,8 @@ var Editable$1 = function Editable(props) {
 
       var anchorNode = domSelection.anchorNode,
           focusNode = domSelection.focusNode;
-      var anchorNodeSelectable = hasEditableTarget(editor, anchorNode) || isTargetInsideVoid(editor, anchorNode);
-      var focusNodeSelectable = hasEditableTarget(editor, focusNode) || isTargetInsideVoid(editor, focusNode);
+      var anchorNodeSelectable = hasEditableTarget(editor, anchorNode) || isTargetInsideNonReadonlyVoid(editor, anchorNode);
+      var focusNodeSelectable = hasEditableTarget(editor, focusNode) || isTargetInsideNonReadonlyVoid(editor, focusNode);
 
       if (anchorNodeSelectable && focusNodeSelectable) {
         var range = ReactEditor.toSlateRange(editor, domSelection, {
@@ -1732,7 +1783,7 @@ var Editable$1 = function Editable(props) {
         // type that we need. So instead, insert whenever a composition
         // ends since it will already have been committed to the DOM.
 
-        if (!IS_SAFARI && !IS_FIREFOX_LEGACY && !IS_IOS && !IS_QQBROWSER && !IS_HYPERCLASS_IOS && !IS_HYPERCLASS_ANDROID && event.data) {
+        if (!IS_SAFARI && !IS_FIREFOX_LEGACY && !IS_IOS && !IS_QQBROWSER && !IS_WECHATBROWSER && !IS_UC_MOBILE && !IS_HYPERCLASS_IOS && !IS_HYPERCLASS_ANDROID && event.data) {
           slate.Editor.insertText(editor, event.data);
         }
 
@@ -1809,13 +1860,13 @@ var Editable$1 = function Editable(props) {
     onCopy: React.useCallback(function (event) {
       if (hasEditableTarget(editor, event.target) && !isEventHandled(event, attributes.onCopy)) {
         event.preventDefault();
-        ReactEditor.setFragmentData(editor, event.clipboardData);
+        ReactEditor.setFragmentData(editor, event.clipboardData, 'copy');
       }
     }, [attributes.onCopy]),
     onCut: React.useCallback(function (event) {
       if (!readOnly && hasEditableTarget(editor, event.target) && !isEventHandled(event, attributes.onCut)) {
         event.preventDefault();
-        ReactEditor.setFragmentData(editor, event.clipboardData);
+        ReactEditor.setFragmentData(editor, event.clipboardData, 'cut');
         var selection = editor.selection;
 
         if (selection) {
@@ -1859,9 +1910,9 @@ var Editable$1 = function Editable(props) {
         }
 
         state.isDraggingInternally = true;
-        ReactEditor.setFragmentData(editor, event.dataTransfer);
+        ReactEditor.setFragmentData(editor, event.dataTransfer, 'drag');
       }
-    }, [attributes.onDragStart]),
+    }, [readOnly, attributes.onDragStart]),
     onDrop: React.useCallback(function (event) {
       if (!readOnly && hasTarget(editor, event.target) && !isEventHandled(event, attributes.onDrop)) {
         event.preventDefault(); // Keep a reference to the dragged range before updating selection
@@ -2255,10 +2306,11 @@ var hasEditableTarget = function hasEditableTarget(editor, target) {
   });
 };
 /**
- * Check if the target is inside void and in the editor.
+ * Check if the target is inside void and in an non-readonly editor.
  */
 
-var isTargetInsideVoid = function isTargetInsideVoid(editor, target) {
+var isTargetInsideNonReadonlyVoid = function isTargetInsideNonReadonlyVoid(editor, target) {
+  if (IS_READ_ONLY.get(editor)) return false;
   var slateNode = hasTarget(editor, target) && ReactEditor.toSlateNode(editor, target);
   return slate.Editor.isVoid(editor, slateNode);
 };
@@ -2560,8 +2612,8 @@ var ReactEditor = {
   /**
    * Sets data from the currently selected fragment on a `DataTransfer`.
    */
-  setFragmentData: function setFragmentData(editor, data) {
-    editor.setFragmentData(data);
+  setFragmentData: function setFragmentData(editor, data, originEvent) {
+    editor.setFragmentData(data, originEvent);
   },
 
   /**
@@ -3272,19 +3324,6 @@ var isRemoveLeafNodes = function isRemoveLeafNodes(_, _ref7) {
   return removedNodes.length > 0 && addedNodes.length === 0 && characterDataMutations.length > 0;
 };
 
-function restoreDOM(editor) {
-  try {
-    var onRestoreDOM = EDITOR_TO_RESTORE_DOM.get(editor);
-
-    if (onRestoreDOM) {
-      onRestoreDOM();
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(err);
-  }
-}
-
 function _createForOfIteratorHelper$1(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray$1(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
 
 function _unsupportedIterableToArray$1(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray$1(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray$1(o, minLen); }
@@ -3315,15 +3354,17 @@ function _objectSpread$1(target) { for (var i = 1; i < arguments.length; i++) { 
  * - Line breaks
  *
  * @param editor
+ * @param restoreDOM
  */
 
 
-var AndroidInputManager = function AndroidInputManager(editor) {
+var AndroidInputManager = function AndroidInputManager(editor, restoreDOM) {
   var _this = this;
 
   _classCallCheck(this, AndroidInputManager);
 
   this.editor = editor;
+  this.restoreDOM = restoreDOM;
   /**
    * Handle MutationObserver flush
    *
@@ -3338,7 +3379,7 @@ var AndroidInputManager = function AndroidInputManager(editor) {
       // eslint-disable-next-line no-console
       console.error(err); // Failed to reconcile mutations, restore DOM to its previous state
 
-      restoreDOM(_this.editor);
+      _this.restoreDOM();
     }
   };
   /**
@@ -3406,10 +3447,9 @@ var AndroidInputManager = function AndroidInputManager(editor) {
 
   this.insertBreak = function () {
     var selection = _this.editor.selection;
-    slate.Editor.insertBreak(_this.editor); // To-do: Need a more granular solution to restoring only a specific portion
-    // of the document. Restoring the entire document is expensive.
+    slate.Editor.insertBreak(_this.editor);
 
-    restoreDOM(_this.editor);
+    _this.restoreDOM();
 
     if (selection) {
       // Compat: Move selection to the newly inserted block if it has not moved
@@ -3434,7 +3474,7 @@ var AndroidInputManager = function AndroidInputManager(editor) {
       slate.Editor.insertText(_this.editor, text);
     }
 
-    restoreDOM(_this.editor);
+    _this.restoreDOM();
   };
   /**
    * Handle `backspace` that merges blocks
@@ -3444,7 +3484,8 @@ var AndroidInputManager = function AndroidInputManager(editor) {
   this.deleteBackward = function () {
     slate.Editor.deleteBackward(_this.editor);
     ReactEditor.focus(_this.editor);
-    restoreDOM(_this.editor);
+
+    _this.restoreDOM();
   };
   /**
    * Handle mutations that remove specific leaves
@@ -3465,7 +3506,8 @@ var AndroidInputManager = function AndroidInputManager(editor) {
           slate.Transforms["delete"](_this.editor, {
             at: path
           });
-          restoreDOM(_this.editor);
+
+          _this.restoreDOM();
         }
       }
     } catch (err) {
@@ -3476,6 +3518,7 @@ var AndroidInputManager = function AndroidInputManager(editor) {
   };
 
   this.editor = editor;
+  this.restoreDOM = restoreDOM;
 };
 
 function useMutationObserver(node, callback, options) {
@@ -3499,6 +3542,72 @@ function useMutationObserver(node, callback, options) {
 
     return mutationObserver.disconnect.bind(mutationObserver);
   });
+}
+
+var MUTATION_OBSERVER_CONFIG$1 = {
+  childList: true,
+  characterData: true,
+  subtree: true
+};
+
+function findClosestKnowSlateNode(domNode) {
+  var _domEl;
+
+  var domEl = isDOMElement(domNode) ? domNode : domNode.parentElement;
+
+  if (domEl && !domEl.hasAttribute('data-slate-node')) {
+    domEl = domEl.closest("[data-slate-node]");
+  }
+
+  var slateNode = domEl && ELEMENT_TO_NODE.get(domEl);
+
+  if (slateNode) {
+    return slateNode;
+  } // Unknown dom element with a slate-slate-node attribute => the IME
+  // most likely duplicated the node so we have to restore the parent
+
+
+  return (_domEl = domEl) !== null && _domEl !== void 0 && _domEl.parentElement ? findClosestKnowSlateNode(domEl.parentElement) : null;
+}
+
+function useRestoreDom(node, receivedUserInput) {
+  var editor = useSlateStatic();
+  var mutatedNodes = React.useRef(new Set());
+  var handleDOMMutation = React.useCallback(function (mutations) {
+    if (!receivedUserInput.current) {
+      return;
+    }
+
+    mutations.forEach(function (_ref) {
+      var target = _ref.target;
+      var slateNode = findClosestKnowSlateNode(target);
+
+      if (!slateNode) {
+        return;
+      }
+
+      return mutatedNodes.current.add(slateNode);
+    });
+  }, []);
+  useMutationObserver(node, handleDOMMutation, MUTATION_OBSERVER_CONFIG$1); // Clear mutated nodes on every render
+
+  mutatedNodes.current.clear();
+  var restore = React.useCallback(function () {
+    var mutated = Array.from(mutatedNodes.current.values()); // Filter out child nodes of nodes that will be restored anyway
+
+    var nodesToRestore = mutated.filter(function (n) {
+      return !mutated.some(function (m) {
+        return slate.Path.isParent(ReactEditor.findPath(editor, m), ReactEditor.findPath(editor, n));
+      });
+    });
+    nodesToRestore.forEach(function (n) {
+      var _NODE_TO_RESTORE_DOM$;
+
+      (_NODE_TO_RESTORE_DOM$ = NODE_TO_RESTORE_DOM.get(n)) === null || _NODE_TO_RESTORE_DOM$ === void 0 ? void 0 : _NODE_TO_RESTORE_DOM$();
+    });
+    mutatedNodes.current.clear();
+  }, []);
+  return restore;
 }
 
 function useTrackUserInput() {
@@ -3541,16 +3650,14 @@ var MUTATION_OBSERVER_CONFIG = {
 function useAndroidInputManager(node) {
   var editor = useSlateStatic();
 
-  var _useState = React.useState(function () {
-    return new AndroidInputManager(editor);
-  }),
-      _useState2 = _slicedToArray(_useState, 1),
-      inputManager = _useState2[0];
-
   var _useTrackUserInput = useTrackUserInput(),
       receivedUserInput = _useTrackUserInput.receivedUserInput,
       onUserInput = _useTrackUserInput.onUserInput;
 
+  var restoreDom = useRestoreDom(node, receivedUserInput);
+  var inputManager = React.useMemo(function () {
+    return new AndroidInputManager(editor, restoreDom);
+  }, [restoreDom, editor]);
   var timeoutId = React.useRef(null);
   var isReconciling = React.useRef(false);
   var flush = React.useCallback(function (mutations) {
@@ -3618,17 +3725,7 @@ var AndroidEditable = function AndroidEditable(props) {
       latestElement: null
     };
   }, []);
-
-  var _useState = React.useState(0),
-      _useState2 = _slicedToArray(_useState, 2),
-      contentKey = _useState2[0],
-      setContentKey = _useState2[1];
-
-  var onRestoreDOM = React.useCallback(function () {
-    setContentKey(function (prev) {
-      return prev + 1;
-    });
-  }, [contentKey]); // Whenever the editor updates...
+  var contentKey = useContentKey(editor); // Whenever the editor updates...
 
   useIsomorphicLayoutEffect(function () {
     // Update element-related weak maps with the DOM element ref.
@@ -3639,10 +3736,8 @@ var AndroidEditable = function AndroidEditable(props) {
       EDITOR_TO_ELEMENT.set(editor, ref.current);
       NODE_TO_ELEMENT.set(editor, ref.current);
       ELEMENT_TO_NODE.set(ref.current, editor);
-      EDITOR_TO_RESTORE_DOM.set(editor, onRestoreDOM);
     } else {
       NODE_TO_ELEMENT["delete"](editor);
-      EDITOR_TO_RESTORE_DOM["delete"](editor);
     }
 
     try {
@@ -3779,8 +3874,8 @@ var AndroidEditable = function AndroidEditable(props) {
 
         var anchorNode = domSelection.anchorNode,
             focusNode = domSelection.focusNode;
-        var anchorNodeSelectable = hasEditableTarget(editor, anchorNode) || isTargetInsideVoid(editor, anchorNode);
-        var focusNodeSelectable = hasEditableTarget(editor, focusNode) || isTargetInsideVoid(editor, focusNode);
+        var anchorNodeSelectable = hasEditableTarget(editor, anchorNode) || isTargetInsideNonReadonlyVoid(editor, anchorNode);
+        var focusNodeSelectable = hasEditableTarget(editor, focusNode) || isTargetInsideNonReadonlyVoid(editor, focusNode);
 
         if (anchorNodeSelectable && focusNodeSelectable) {
           var range = ReactEditor.toSlateRange(editor, domSelection, {
@@ -3845,13 +3940,13 @@ var AndroidEditable = function AndroidEditable(props) {
     onCopy: React.useCallback(function (event) {
       if (hasEditableTarget(editor, event.target) && !isEventHandled(event, attributes.onCopy)) {
         event.preventDefault();
-        ReactEditor.setFragmentData(editor, event.clipboardData);
+        ReactEditor.setFragmentData(editor, event.clipboardData, 'copy');
       }
     }, [attributes.onCopy]),
     onCut: React.useCallback(function (event) {
       if (!readOnly && hasEditableTarget(editor, event.target) && !isEventHandled(event, attributes.onCut)) {
         event.preventDefault();
-        ReactEditor.setFragmentData(editor, event.clipboardData);
+        ReactEditor.setFragmentData(editor, event.clipboardData, 'cut');
         var selection = editor.selection;
 
         if (selection) {
